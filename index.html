@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>タイピングトラッカー</title>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0 auto;
+      max-width: 600px;
+      padding: 20px;
+      background-color: #f8f9fa;
+      color: #343a40;
+    }
+    h1 {
+      text-align: center;
+      color: #007bff;
+      margin-bottom: 20px;
+      font-weight: 700;
+    }
+    .sensor-data, .stats, .emotion-selection, .warning, #predictionResult {
+      border-radius: 8px;
+      margin: 15px 0;
+      padding: 15px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .stats {
+      background: #e9f5ff;
+      border: 1px solid #cce5ff;
+    }
+    .sensor-data {
+      background: #fff3e0;
+      border: 1px solid #ffcc80;
+      font-size: 0.9em;
+    }
+    .emotion-selection {
+      background: #e6f7ff;
+      border: 1px solid #99d8ff;
+    }
+    .warning {
+      background: #fff0f0;
+      border: 1px solid #f8d7da;
+      color: #721c24;
+      font-weight: 600;
+    }
+    textarea {
+      width: 100%;
+      padding: 15px;
+      border: 2px solid #ced4da;
+      border-radius: 8px;
+      font-size: 16px;
+      resize: vertical;
+      box-sizing: border-box;
+      transition: border-color 0.3s;
+    }
+    textarea:focus {
+      border-color: #007bff;
+      outline: none;
+    }
+    .button-container {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    button {
+      flex: 1;
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 12px 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      transition: background 0.3s, transform 0.1s;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:active {
+      transform: translateY(1px);
+    }
+    #predictionResult {
+      font-size: 1.2em;
+      font-weight: bold;
+      text-align: center;
+      min-height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+      border: 1px solid #ccc;
+      transition: background-color 0.5s;
+    }
+    .emotion-happy { background-color: #ffeb3b; } /* 喜 */
+    .emotion-angry { background-color: #f44336; color: white; } /* 怒 */
+    .emotion-sad { background-color: #2196f3; color: white; } /* 哀 */
+    .emotion-fun { background-color: #4caf50; color: white; } /* 楽 */
+    .emotion-default { background-color: #e9ecef; }
+    
+    /* レスポンシブ対応 */
+    @media (max-width: 480px) {
+      body {
+        padding: 10px;
+      }
+      .button-container {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>📱 タイピングトラッカー</h1>
+  
+  <div class="warning">
+    <strong>注意:</strong> 加速度センサーを使用するため、スマートフォンまたはタブレットでアクセスしてください。センサーの許可が求められる場合があります。
+  </div>
+  
+  <textarea id="typingArea" rows="6" placeholder="ここにタイピングしてください"></textarea>
+  
+  <div class="stats">
+    <p><strong>📝 タイピング数:</strong> <span id="typeCount">0</span></p>
+    <p><strong>🔙 削除回数 (Backspace):</strong> <span id="deleteCount">0</span></p>
+    <p><strong>⏱ 打ち込み時間:</strong> <span id="typingTime">0.0</span> 秒</p>
+  </div>
+  
+  <div class="sensor-data">
+    <p><strong>📊 最大加速度 (絶対値):</strong></p>
+    <p>Max X: <span id="maxAccelX">0.00</span></p>
+    <p>Max Y: <span id="maxAccelY">0.00</span></p>
+    <p>Max Z: <span id="maxAccelZ">0.00</span></p>
+    <div id="sensorStatus"></div>
+  </div>
+  
+  <div class="emotion-selection">
+    <p><strong>😊 今の感情を選んでください: (記録用)</strong></p>
+    <label><input type="radio" name="emotion" value="喜"> 😊 喜</label>
+    <label><input type="radio" name="emotion" value="怒"> 😠 怒</label>
+    <label><input type="radio" name="emotion" value="哀"> 😢 哀</label>
+    <label><input type="radio" name="emotion" value="楽"> 😄 楽</label>
+  </div>
+  
+  <div class="button-container">
+    <button id="saveBtn">💾 保存 & 感情予測</button>
+    <button id="resetBtn">🔄 リセット</button>
+  </div>
+
+  <div id="predictionResult" class="emotion-default">
+    ここに予測された感情が表示されます
+  </div>
+
+  <script>
+    const typingArea = document.getElementById('typingArea');
+    const typeCountSpan = document.getElementById('typeCount');
+    const deleteCountSpan = document.getElementById('deleteCount');
+    const typingTimeSpan = document.getElementById('typingTime');
+    const saveBtn = document.getElementById('saveBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const sensorStatus = document.getElementById('sensorStatus');
+    const predictionResultDiv = document.getElementById('predictionResult');
+    const maxAccelXSpan = document.getElementById('maxAccelX');
+    const maxAccelYSpan = document.getElementById('maxAccelY');
+    const maxAccelZSpan = document.getElementById('maxAccelZ');
+
+    let typeCount = 0;
+    let deleteCount = 0;
+    let startTime = null;
+    let timer = null;
+    let maxAccelX = 0, maxAccelY = 0, maxAccelZ = 0;
+
+    /**
+     * タイピング開始/キーダウンイベント処理
+     */
+    typingArea.addEventListener('keydown', (e) => {
+      // 初回キー入力時にタイマーをスタート
+      if (!startTime) {
+        startTime = Date.now();
+        timer = setInterval(() => {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          typingTimeSpan.textContent = elapsed;
+        }, 100);
+      }
+      
+      // 文字入力のカウント
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        typeCount++;
+        typeCountSpan.textContent = typeCount;
+      } 
+      // Backspace（削除）のカウント
+      else if (e.key === 'Backspace') {
+        deleteCount++;
+        deleteCountSpan.textContent = deleteCount;
+      }
+    });
+
+    typingArea.addEventListener('blur', () => {
+      if (timer) clearInterval(timer);
+    });
+
+    typingArea.addEventListener('focus', () => {
+      if (startTime && !timer) {
+        timer = setInterval(() => {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          typingTimeSpan.textContent = elapsed;
+        }, 100);
+      }
+    });
+
+
+    /**
+     * 加速度センサーの許可とトラッキング開始
+     */
+    if (window.DeviceMotionEvent) {
+      if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        sensorStatus.innerHTML = '<button onclick="requestSensorPermission()">センサー許可を取得</button>';
+      } else {
+        startSensorTracking();
+      }
+    } else {
+      sensorStatus.innerHTML = '<p style="color: red;">加速度センサーはサポートされていません。</p>';
+    }
+
+    window.requestSensorPermission = function() {
+      DeviceMotionEvent.requestPermission()
+        .then(permissionState => {
+          if (permissionState === 'granted') {
+            startSensorTracking();
+            sensorStatus.innerHTML = '<p style="color: green;">センサー許可済み ✓</p>';
+          } else {
+            sensorStatus.innerHTML = '<p style="color: red;">センサー許可が拒否されました</p>';
+          }
+        })
+        .catch(err => {
+            console.error(err);
+            sensorStatus.innerHTML = '<p style="color: red;">センサー許可取得中にエラーが発生しました。</p>';
+        });
+    }
+
+    function startSensorTracking() {
+      window.addEventListener('devicemotion', (event) => {
+        // 重力を含む加速度を取得
+        const accelX = event.accelerationIncludingGravity.x || 0;
+        const accelY = event.accelerationIncludingGravity.y || 0;
+        const accelZ = event.accelerationIncludingGravity.z || 0;
+        
+        // 最大値の更新（絶対値で比較）
+        if (Math.abs(accelX) > Math.abs(maxAccelX)) maxAccelX = accelX;
+        if (Math.abs(accelY) > Math.abs(maxAccelY)) maxAccelY = accelY;
+        if (Math.abs(accelZ) > Math.abs(maxAccelZ)) maxAccelZ = accelZ;
+        
+        // 最大値の表示を更新
+        maxAccelXSpan.textContent = Math.abs(maxAccelX).toFixed(2);
+        maxAccelYSpan.textContent = Math.abs(maxAccelY).toFixed(2);
+        maxAccelZSpan.textContent = Math.abs(maxAccelZ).toFixed(2);
+      });
+      
+      if (!sensorStatus.innerHTML.includes('許可済み')) {
+        sensorStatus.innerHTML = '<p style="color: green;">センサー動作中 ✓</p>';
+      }
+    }
+
+
+    /**
+     * 感情を予測して表示するロジック (二項分類)
+     */
+    function predictAndDisplayEmotion() {
+      // (1) タイピングの強さ (Max Accelの最大絶対値)
+      const overallMaxAccel = Math.max(Math.abs(maxAccelX), Math.abs(maxAccelY), Math.abs(maxAccelZ));
+      
+      // (2) 秒間削除回数 (削除の多さ)
+      const currentTypingTime = parseFloat(typingTimeSpan.textContent);
+      const deletionRate = currentTypingTime > 0 ? deleteCount / currentTypingTime : 0;
+
+      // --- 閾値設定（この値を調整して精度を上げてください） ---
+      const THRESHOLD_ACCEL = 5.0; // これより大きいと「強いタイピング」 (m/s^2)
+      const THRESHOLD_DELETION = 0.5; // 秒間0.5回以上で「削除が多い」
+
+      let predictedEmotion = "不明";
+      let emotionClass = "emotion-default";
+
+      // 二項分類の判定
+      const isStrongTyping = overallMaxAccel > THRESHOLD_ACCEL;
+      const isHighDeletionRate = deletionRate >= THRESHOLD_DELETION;
+
+      /*
+        予測ロジック (2x2マトリックス):
+        +------------------+------------------+------------------+
+        |                  | 削除が多い (High)  | 削除が少ない (Low) |
+        +------------------+------------------+------------------+
+        | 強いタイピング (Strong) | 怒 (Angry)         | 喜 (Happy)         |
+        +------------------+------------------+------------------+
+        | 弱いタイピング (Weak)  | 哀 (Sad)           | 楽 (Fun/Relaxed)   |
+        +------------------+------------------+------------------+
+      */
+
+      if (isHighDeletionRate) { // 削除が多い場合
+          if (isStrongTyping) {
+              predictedEmotion = "怒"; // 強いタイピング + 削除が多い
+              emotionClass = "emotion-angry";
+          } else { 
+              predictedEmotion = "哀"; // 弱いタイピング + 削除が多い
+              emotionClass = "emotion-sad";
+          }
+      } else { // 削除が少ない場合
+          if (isStrongTyping) {
+              predictedEmotion = "喜"; // 強いタイピング + 削除が少ない
+              emotionClass = "emotion-happy";
+          } else { 
+              predictedEmotion = "楽"; // 弱いタイピング + 削除が少ない
+              emotionClass = "emotion-fun";
+          }
+      }
+
+      // 結果を表示
+      predictionResultDiv.textContent = `予測された感情: ${predictedEmotion} (${overallMaxAccel.toFixed(2)}m/s², ${deletionRate.toFixed(2)}回/秒)`;
+      predictionResultDiv.className = ''; 
+      predictionResultDiv.classList.add(emotionClass); 
+    }
+
+    /**
+     * 保存ボタン処理 (GASへのデータ送信)
+     */
+    saveBtn.addEventListener('click', () => {
+      // 感情を予測して表示
+      predictAndDisplayEmotion(); 
+
+      // ユーザーが選択した感情も取得 (記録用)
+      const emotion = document.querySelector('input[name="emotion"]:checked');
+      
+      if (!emotion) {
+          alert('保存するには、まず「今の感情」を選択してください。');
+          return;
+      }
+      
+      const data = {
+        text: typingArea.value,
+        typeCount: typeCount,
+        deleteCount: deleteCount,
+        typingTime: typingTimeSpan.textContent,
+        maxAccel: { x: maxAccelX, y: maxAccelY, z: maxAccelZ },
+        emotion: emotion.value, // ユーザーが選択した感情
+        predictedEmotion: predictionResultDiv.textContent.split(': ')[1].split(' ')[0], // 予測結果から感情だけを抽出
+        timestamp: new Date().toISOString()
+      };
+      
+      // ★★★【最重要】注意: ここにあなたの最新のGoogle Apps Script WebアプリURLを貼り付けてください！ ★★★
+      // このURLが正しくないと、データは保存されません。
+      const gasUrl = 'https://script.google.com/macros/s/AKfycbyvp6LnIRFKxQ29T4HmS0AWiAYFCcXLHTStVjIO_eJ5RAtg4J4LhruBPbgW-iY50N1R/exec';
+      console.log('GASへの送信URL:', gasUrl); 
+      console.log('送信データ:', data); 
+
+      // Google Apps ScriptのWeb APIに送信
+      fetch(gasUrl, {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(async (res) => {
+        if (!res.ok) { 
+          const errorText = await res.text(); 
+          console.error(`GAS応答エラー: HTTPステータス ${res.status} ${res.statusText}. 応答ボディ: ${errorText}`);
+          throw new Error(`GAS応答エラー: HTTPステータス ${res.status}。URL、デプロイ設定、またはスクリプトを確認してください。`);
+        }
+        return res.text();
+      })
+      .then(msg => {
+        alert('データをGoogleスプレッドシートに保存しました！GASからの応答: ' + msg); 
+        // 成功後、リセットを提案
+        document.getElementById('resetBtn').click();
+      })
+      .catch(err => {
+        console.error('保存エラー:', err);
+        alert('GASへの保存に失敗しました。コンソールログの詳細と、GASの実行ログを確認してください。エラー: ' + err.message); 
+      });
+    });
+
+    /**
+     * リセットボタン処理
+     */
+    resetBtn.addEventListener('click', () => {
+      if (confirm('入力内容と計測データをリセットしますか？')) {
+        typingArea.value = '';
+        typeCount = 0;
+        deleteCount = 0;
+        startTime = null;
+        maxAccelX = maxAccelY = maxAccelZ = 0; // 最大加速度もリセット
+        
+        typeCountSpan.textContent = '0';
+        deleteCountSpan.textContent = '0';
+        typingTimeSpan.textContent = '0.0';
+        maxAccelXSpan.textContent = '0.00';
+        maxAccelYSpan.textContent = '0.00';
+        maxAccelZSpan.textContent = '0.00';
+        
+        document.querySelectorAll('input[name="emotion"]').forEach(radio => {
+          radio.checked = false;
+        });
+        
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+        
+        predictionResultDiv.textContent = 'ここに予測された感情が表示されます';
+        predictionResultDiv.className = 'emotion-default'; 
+      }
+    });
+  </script>
+</body>
+</html>
